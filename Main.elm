@@ -1,11 +1,17 @@
 module Main exposing (..)
 
-import Html exposing (Html)
+import Html exposing (Html, div, button, text)
 import Html.Attributes exposing (style, width, height)
+import Html.Events exposing (onClick)
 import WebGL exposing (Shader, Mesh, Entity, entity)
 import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector3 exposing (Vec3, vec3)
 import Random exposing (Generator, list, pair, float)
+
+
+objectCount : Int
+objectCount =
+    50
 
 
 canvasWidth : Int
@@ -15,12 +21,19 @@ canvasWidth =
 
 canvasHeight : Int
 canvasHeight =
-    800
+    880
+
+
+type ObjectType
+    = Triangles
+    | Squares
 
 
 type Msg
-    = SetTriangles (List (List Point))
-    | SetColor Color
+    = SetTriangles (List Triangle)
+    | SetSquares (List Square)
+    | RenderTriangles
+    | RenderSquares
 
 
 type alias Vertex =
@@ -29,16 +42,20 @@ type alias Vertex =
     }
 
 
+type alias Triangle =
+    { vertices : ( Point, Point, Point ), color : Color }
+
+
+type alias Square =
+    { base : Point
+    , width : Float
+    , height : Float
+    , color : Color
+    }
+
+
 type alias Uniforms =
     { resolution : Vec2 }
-
-
-type alias TriangleDefinition =
-    List Point
-
-
-type alias Triangle =
-    ( Point, Point, Point )
 
 
 type alias Point =
@@ -46,77 +63,96 @@ type alias Point =
 
 
 type alias Model =
-    { triangles : List TriangleDefinition
-    , color : Color
+    { triangles : List Triangle
+    , squares : List Square
+    , objectType : ObjectType
     }
 
 
-type Color
-    = Red
-    | Green
-    | Blue
+initialModel : Model
+initialModel =
+    Model [] [] Triangles
 
 
-colorMap : Color -> Vec3
-colorMap color =
-    case color of
-        Red ->
-            vec3 1 0 0
-
-        Green ->
-            vec3 0 1 0
-
-        Blue ->
-            vec3 0 0 1
+type alias Color =
+    ( Float, Float, Float )
 
 
-intToColor : Float -> Color
-intToColor i =
-    case i of
-        1 ->
-            Red
-
-        2 ->
-            Green
-
-        _ ->
-            Blue
+colorValueGenerator : Generator Float
+colorValueGenerator =
+    float 0 1
 
 
-color : Generator Color
-color =
-    Random.map intToColor (float 1 3)
+colorGenerator : Generator Color
+colorGenerator =
+    Random.map3 (,,) colorValueGenerator colorValueGenerator colorValueGenerator
 
 
-randomPosition : Float -> Generator Float
-randomPosition size =
-    float -size size
+positionGenerator : Float -> Generator Float
+positionGenerator =
+    float 0
 
 
-randomTriangle : Float -> Float -> Generator (List (List Point))
-randomTriangle width height =
-    let
-        getPositionWithinHeight =
-            randomPosition height
+triangleVertices : Float -> Float -> Generator ( Point, Point, Point )
+triangleVertices width height =
+    Random.map3 (,,)
+        (pointGenerator width height)
+        (pointGenerator width height)
+        (pointGenerator width height)
 
-        getPositionWithinWidth =
-            randomPosition width
-    in
-        list 20 <| list 3 <| Random.map2 (,) getPositionWithinWidth getPositionWithinHeight
+
+squareBase : Float -> Float -> Generator Point
+squareBase width height =
+    (pointGenerator width height)
+
+
+pointGenerator : Float -> Float -> Generator Point
+pointGenerator width height =
+    Random.map2 (,)
+        (positionGenerator width)
+        (positionGenerator height)
+
+
+triangleGenerator : Float -> Float -> Generator Triangle
+triangleGenerator width height =
+    Random.map2 Triangle
+        (triangleVertices width height)
+        colorGenerator
+
+
+squareGenerator : Float -> Float -> Generator Square
+squareGenerator width height =
+    Random.map4 Square
+        (squareBase width height)
+        (positionGenerator (width / 2))
+        (positionGenerator (height / 2))
+        colorGenerator
+
+
+trianglesGenerator : Float -> Float -> Generator (List Triangle)
+trianglesGenerator width height =
+    list objectCount <| triangleGenerator width height
+
+
+squaresGenerator : Float -> Float -> Generator (List Square)
+squaresGenerator width height =
+    list objectCount <| squareGenerator width height
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        SetColor clr ->
-            let
-                _ =
-                    Debug.log "clr" clr
-            in
-                { model | color = clr } ! []
-
         SetTriangles triangles ->
             { model | triangles = triangles } ! []
+
+        SetSquares squares ->
+            { model | squares = squares } ! []
+
+        RenderSquares ->
+            { model | objectType = Squares } ! [ generateSquares ]
+
+        RenderTriangles ->
+            { model | objectType = Triangles } ! [ generateTriangles ]
 
 
 vertexShader : Shader Vertex Uniforms { vColor : Vec3 }
@@ -150,64 +186,167 @@ fragmentShader =
     |]
 
 
-pointToVec2 : Point -> Vec2
-pointToVec2 ( x, y ) =
-    vec2 x y
+colorToVec3 : Color -> Vec3
+colorToVec3 ( r, g, b ) =
+    vec3 r g b
 
 
-triangleMesh : TriangleDefinition -> Color -> Mesh Vertex
-triangleMesh triangle clr =
+triangleMesh : Triangle -> Mesh Vertex
+triangleMesh triangle =
     let
-        vectors =
-            List.map pointToVec2 triangle
+        ( ( p1x, p1y ), ( p2x, p2y ), ( p3x, p3y ) ) =
+            triangle.vertices
 
-        vertexes =
-            List.map (\v2 -> Vertex v2 (colorMap clr)) vectors
+        color =
+            colorToVec3 triangle.color
 
-        triangles =
-            case vertexes of
-                [ a, b, c ] ->
-                    Just [ ( a, b, c ) ]
-                        |> Maybe.withDefault []
-
-                _ ->
-                    []
+        mesh =
+            [ ( Vertex (vec2 p1x p1y) color
+              , Vertex (vec2 p2x p2y) color
+              , Vertex (vec2 p3x p3y) color
+              )
+            ]
     in
-        WebGL.triangles triangles
+        WebGL.triangles mesh
 
 
-triangleEntity : TriangleDefinition -> Color -> Entity
-triangleEntity triangle clr =
+squareMesh : Square -> Mesh Vertex
+squareMesh square =
+    let
+        ( x, y ) =
+            square.base
+
+        x1 =
+            x
+
+        x2 =
+            x + square.width
+
+        y1 =
+            y
+
+        y2 =
+            y + square.height
+
+        color =
+            colorToVec3 square.color
+
+        mesh =
+            [ ( Vertex (vec2 x1 y1) color
+              , Vertex (vec2 x2 y1) color
+              , Vertex (vec2 x1 y2) color
+              )
+            , ( Vertex (vec2 x1 y2) color
+              , Vertex (vec2 x2 y1) color
+              , Vertex (vec2 x2 y2) color
+              )
+            ]
+    in
+        WebGL.triangles mesh
+
+
+triangleEntity : Triangle -> Entity
+triangleEntity triangle =
     entity
         vertexShader
         fragmentShader
-        (triangleMesh triangle clr)
+        (triangleMesh triangle)
         { resolution = vec2 (toFloat canvasWidth) (toFloat canvasHeight)
         }
 
 
-triangleEntities : Model -> List Entity
-triangleEntities model =
-    List.map (\triangle -> triangleEntity triangle model.color) model.triangles
+squareEntity : Square -> Entity
+squareEntity square =
+    entity
+        vertexShader
+        fragmentShader
+        (squareMesh square)
+        { resolution = vec2 (toFloat canvasWidth) (toFloat canvasHeight)
+        }
 
 
-view : Model -> Html msg
+triangleEntities : List Triangle -> List Entity
+triangleEntities =
+    List.map triangleEntity
+
+
+squareEntities : List Square -> List Entity
+squareEntities =
+    List.map squareEntity
+
+
+view : Model -> Html Msg
 view model =
-    WebGL.toHtml
-        [ width canvasWidth
-        , height canvasHeight
-        , style [ ( "display", "block" ) ]
-        ]
-        (triangleEntities model)
+    let
+        buttonStyle extraStyle =
+            style
+                (List.append
+                    extraStyle
+                    [ ( "display", "inline-block" )
+                    , ( "padding", "20px" )
+                    , ( "border", "none" )
+                    , ( "margin-right", "20px" )
+                    , ( "text-transform", "uppercase" )
+                    , ( "font-weight", "bold" )
+                    , ( "font-size", "18px" )
+                    , ( "outline", "none" )
+                    ]
+                )
+
+        entities =
+            case model.objectType of
+                Squares ->
+                    (squareEntities model.squares)
+
+                Triangles ->
+                    (triangleEntities model.triangles)
+    in
+        div []
+            [ div
+                [ style
+                    [ ( "position", "absolute" )
+                    , ( "top", "0px" )
+                    , ( "left", "0px" )
+                    ]
+                ]
+                [ button
+                    [ buttonStyle [ ( "background-color", "tomato" ) ]
+                    , onClick RenderTriangles
+                    ]
+                    [ text "triangles!" ]
+                , button
+                    [ buttonStyle [ ( "background-color", "peachpuff" ) ]
+                    , onClick RenderSquares
+                    ]
+                    [ text "squares!" ]
+                ]
+            , WebGL.toHtml
+                [ width canvasWidth
+                , height canvasHeight
+                , style [ ( "display", "block" ) ]
+                ]
+                entities
+            ]
+
+
+generateTriangles : Cmd Msg
+generateTriangles =
+    Random.generate
+        SetTriangles
+        (trianglesGenerator (toFloat canvasWidth) (toFloat canvasHeight))
+
+
+generateSquares : Cmd Msg
+generateSquares =
+    Random.generate
+        SetSquares
+        (squaresGenerator (toFloat canvasWidth) (toFloat canvasHeight))
 
 
 main : Program Never Model Msg
 main =
     Html.program
-        { init =
-            Model [] Red
-                ! [ Random.generate SetTriangles (randomTriangle (toFloat canvasWidth) (toFloat canvasHeight))
-                  ]
+        { init = ( initialModel, generateTriangles )
         , view = view
         , update = update
         , subscriptions = (\_ -> Sub.none)
