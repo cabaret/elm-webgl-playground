@@ -24,6 +24,11 @@ canvasHeight =
     880
 
 
+resolution : Vec2
+resolution =
+    vec2 (toFloat canvasWidth) (toFloat canvasHeight)
+
+
 type ObjectType
     = Triangles
     | Squares
@@ -43,7 +48,9 @@ type alias Vertex =
 
 
 type alias Triangle =
-    { vertices : ( Point, Point, Point ), color : Color }
+    { vertices : ( Point, Point, Point )
+    , color : Color
+    }
 
 
 type alias Square =
@@ -62,6 +69,10 @@ type alias Point =
     ( Float, Float )
 
 
+type alias Color =
+    Vec3
+
+
 type alias Model =
     { triangles : List Triangle
     , squares : List Square
@@ -74,18 +85,14 @@ initialModel =
     Model [] [] Triangles
 
 
-type alias Color =
-    ( Float, Float, Float )
-
-
 colorValueGenerator : Generator Float
 colorValueGenerator =
-    float 0 1
+    float 0.5 1
 
 
 colorGenerator : Generator Color
 colorGenerator =
-    Random.map3 (,,) colorValueGenerator colorValueGenerator colorValueGenerator
+    Random.map3 vec3 colorValueGenerator colorValueGenerator colorValueGenerator
 
 
 positionGenerator : Float -> Generator Float
@@ -129,14 +136,14 @@ squareGenerator width height =
         colorGenerator
 
 
-trianglesGenerator : Float -> Float -> Generator (List Triangle)
-trianglesGenerator width height =
-    list objectCount <| triangleGenerator width height
+trianglesGenerator : Generator (List Triangle)
+trianglesGenerator =
+    list objectCount <| triangleGenerator (toFloat canvasWidth) (toFloat canvasHeight)
 
 
-squaresGenerator : Float -> Float -> Generator (List Square)
-squaresGenerator width height =
-    list objectCount <| squareGenerator width height
+squaresGenerator : Generator (List Square)
+squaresGenerator =
+    list objectCount <| squareGenerator (toFloat canvasWidth) (toFloat canvasHeight)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -186,9 +193,9 @@ fragmentShader =
     |]
 
 
-colorToVec3 : Color -> Vec3
-colorToVec3 ( r, g, b ) =
-    vec3 r g b
+vertexWithColor : Color -> Vec2 -> Vertex
+vertexWithColor color =
+    flip Vertex color
 
 
 triangleMesh : Triangle -> Mesh Vertex
@@ -197,13 +204,13 @@ triangleMesh triangle =
         ( ( p1x, p1y ), ( p2x, p2y ), ( p3x, p3y ) ) =
             triangle.vertices
 
-        color =
-            colorToVec3 triangle.color
+        withColor =
+            vertexWithColor triangle.color
 
         mesh =
-            [ ( Vertex (vec2 p1x p1y) color
-              , Vertex (vec2 p2x p2y) color
-              , Vertex (vec2 p3x p3y) color
+            [ ( withColor (vec2 p1x p1y)
+              , withColor (vec2 p2x p2y)
+              , withColor (vec2 p3x p3y)
               )
             ]
     in
@@ -216,29 +223,23 @@ squareMesh square =
         ( x, y ) =
             square.base
 
-        x1 =
-            x
-
         x2 =
             x + square.width
-
-        y1 =
-            y
 
         y2 =
             y + square.height
 
-        color =
-            colorToVec3 square.color
+        withColor =
+            vertexWithColor square.color
 
         mesh =
-            [ ( Vertex (vec2 x1 y1) color
-              , Vertex (vec2 x2 y1) color
-              , Vertex (vec2 x1 y2) color
+            [ ( withColor (vec2 x y)
+              , withColor (vec2 x2 y)
+              , withColor (vec2 x y2)
               )
-            , ( Vertex (vec2 x1 y2) color
-              , Vertex (vec2 x2 y1) color
-              , Vertex (vec2 x2 y2) color
+            , ( withColor (vec2 x y2)
+              , withColor (vec2 x2 y)
+              , withColor (vec2 x2 y2)
               )
             ]
     in
@@ -251,7 +252,7 @@ triangleEntity triangle =
         vertexShader
         fragmentShader
         (triangleMesh triangle)
-        { resolution = vec2 (toFloat canvasWidth) (toFloat canvasHeight)
+        { resolution = resolution
         }
 
 
@@ -261,7 +262,7 @@ squareEntity square =
         vertexShader
         fragmentShader
         (squareMesh square)
-        { resolution = vec2 (toFloat canvasWidth) (toFloat canvasHeight)
+        { resolution = resolution
         }
 
 
@@ -331,16 +332,12 @@ view model =
 
 generateTriangles : Cmd Msg
 generateTriangles =
-    Random.generate
-        SetTriangles
-        (trianglesGenerator (toFloat canvasWidth) (toFloat canvasHeight))
+    Random.generate SetTriangles trianglesGenerator
 
 
 generateSquares : Cmd Msg
 generateSquares =
-    Random.generate
-        SetSquares
-        (squaresGenerator (toFloat canvasWidth) (toFloat canvasHeight))
+    Random.generate SetSquares squaresGenerator
 
 
 main : Program Never Model Msg
