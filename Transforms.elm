@@ -1,17 +1,12 @@
 module Main exposing (..)
 
-import Html exposing (Html, div, button, text, input, label)
+import Html exposing (Html, div, button, text, input, label, br)
 import Html.Attributes as Attributes exposing (style, width, height, type_, value)
 import Html.Events exposing (onClick, onInput)
 import WebGL exposing (Shader, Mesh, Entity, entity)
 import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector3 exposing (Vec3, vec3)
 import Random exposing (Generator, list, pair, float, int)
-
-
-objectCount : Int
-objectCount =
-    1
 
 
 canvasWidth : Int
@@ -130,8 +125,8 @@ objectGenerator =
 strToFloat : String -> Float
 strToFloat str =
     case String.toFloat str of
-        Ok v ->
-            v
+        Ok f ->
+            f
 
         Err _ ->
             0
@@ -249,6 +244,31 @@ shapeEntity object { position } =
         }
 
 
+sliderView : Float -> Coordinate -> Html Msg
+sliderView coordValue coord =
+    let
+        maxValue =
+            case coord of
+                X ->
+                    canvasWidth
+
+                Y ->
+                    canvasHeight
+    in
+        label []
+            [ text (toString coord)
+            , input
+                [ type_ "range"
+                , value (toString coordValue)
+                , Attributes.min "0"
+                , Attributes.max (toString maxValue)
+                , onInput (UpdateCoordinate coord)
+                ]
+                []
+            , text (toString coordValue)
+            ]
+
+
 view : Model -> Html Msg
 view model =
     let
@@ -276,30 +296,9 @@ view model =
                     , ( "left", "0px" )
                     ]
                 ]
-                [ label []
-                    [ text "x"
-                    , input
-                        [ type_ "range"
-                        , value (toString model.position.x)
-                        , Attributes.min "0"
-                        , Attributes.max (toString canvasWidth)
-                        , onInput (UpdateCoordinate X)
-                        ]
-                        []
-                    , text (toString model.position.x)
-                    ]
-                , label []
-                    [ text "y"
-                    , input
-                        [ type_ "range"
-                        , value (toString model.position.y)
-                        , Attributes.min "0"
-                        , Attributes.max (toString canvasHeight)
-                        , onInput (UpdateCoordinate Y)
-                        ]
-                        []
-                    , text (toString model.position.y)
-                    ]
+                [ sliderView model.position.x X
+                , br [] []
+                , sliderView model.position.y Y
                 ]
             , WebGL.toHtml
                 [ width canvasWidth
