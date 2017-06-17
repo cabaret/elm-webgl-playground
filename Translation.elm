@@ -161,14 +161,12 @@ shapeMesh =
 
 
 shapeEntity : Model -> Entity
-shapeEntity model =
+shapeEntity { translation } =
     entity
         vertexShader
         fragmentShader
         shapeMesh
-        { u_resolution = resolution
-        , u_translation = vec2 model.translation.x model.translation.y
-        }
+        (Uniforms resolution (vec2 translation.x translation.y))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
