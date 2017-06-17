@@ -1,6 +1,6 @@
 module Main exposing (..)
 
-import Html exposing (Html, div, button, text, input, label, br, span)
+import Html exposing (Html, Attribute, div, button, text, input, label, br, span)
 import Html.Attributes as Attributes exposing (style, width, height, type_, value)
 import Html.Events exposing (onInput)
 import WebGL exposing (Shader, Mesh, Entity, entity)
@@ -26,11 +26,22 @@ resolution =
 type Msg
     = UpdateCoordinate Coordinate String
     | UpdateAngle String
+    | UpdateScale Coordinate String
 
 
 type Coordinate
     = X
     | Y
+
+
+type alias SliderConfig =
+    { val : Float
+    , min : Float
+    , max : Float
+    , step : Float
+    , lbl : String
+    , msg : Attribute Msg
+    }
 
 
 type alias Vertex =
@@ -43,6 +54,7 @@ type alias Uniforms =
     { u_resolution : Vec2
     , u_translation : Vec2
     , u_rotation : Vec2
+    , u_scale : Vec2
     }
 
 
@@ -64,6 +76,10 @@ type alias Model =
         , y : Float
         }
     , angle : Float
+    , scale :
+        { x : Float
+        , y : Float
+        }
     }
 
 
@@ -74,6 +90,10 @@ initialModel =
         , y = 0
         }
     , angle = 0
+    , scale =
+        { x = 1
+        , y = 1
+        }
     }
 
 
@@ -97,13 +117,15 @@ vertexShader =
       uniform vec2 u_resolution;
       uniform vec2 u_translation;
       uniform vec2 u_rotation;
+      uniform vec2 u_scale;
       varying vec3 v_vColor;
+
       void main() {
-
-      vec2 rotatedPosition = vec2(
-         a_position.x * u_rotation.y + a_position.y * u_rotation.x,
-         a_position.y * u_rotation.y - a_position.x * u_rotation.x);
-
+        vec2 scaledPosition = a_position * u_scale;
+        // https://webglfundamentals.org/webgl/lessons/webgl-2d-rotation.html
+        vec2 rotatedPosition = vec2(
+           scaledPosition.x * u_rotation.y + scaledPosition.y * u_rotation.x,
+           scaledPosition.y * u_rotation.y - scaledPosition.x * u_rotation.x);
 
         vec2 position = rotatedPosition + u_translation;
         vec2 zeroToOne = position / u_resolution;
@@ -168,7 +190,7 @@ shapeMesh =
 
 
 shapeEntity : Model -> Entity
-shapeEntity { translation, angle } =
+shapeEntity { translation, angle, scale } =
     let
         angleInRadians =
             degrees angle
@@ -181,6 +203,7 @@ shapeEntity { translation, angle } =
                 resolution
                 (vec2 translation.x translation.y)
                 (vec2 (sin angleInRadians) (cos angleInRadians))
+                (vec2 scale.x scale.y)
             )
 
 
@@ -188,11 +211,23 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         UpdateAngle str ->
+            { model | angle = strToFloat str } ! []
+
+        UpdateScale coord str ->
             let
-                angle =
-                    strToFloat str
+                scale =
+                    case coord of
+                        X ->
+                            { x = strToFloat str
+                            , y = model.scale.y
+                            }
+
+                        Y ->
+                            { x = model.scale.x
+                            , y = strToFloat str
+                            }
             in
-                { model | angle = angle } ! []
+                { model | scale = scale } ! []
 
         UpdateCoordinate coord str ->
             let
@@ -213,18 +248,26 @@ update msg model =
 
 angleSlider : Float -> Html Msg
 angleSlider angle =
-    label []
-        [ span [ style [ ( "width", "50px" ), ( "display", "inline-block" ) ] ] [ text "angle" ]
-        , input
-            [ type_ "range"
-            , value (toString angle)
-            , Attributes.min "0"
-            , Attributes.max "360"
-            , onInput (UpdateAngle)
-            ]
-            []
-        , text (" " ++ (toString angle))
-        ]
+    genericSlider
+        { val = angle
+        , min = -360
+        , max = 360
+        , step = 1
+        , lbl = "angle"
+        , msg = (onInput (UpdateAngle))
+        }
+
+
+scaleSlider : Float -> Coordinate -> Html Msg
+scaleSlider coordValue coord =
+    genericSlider
+        { val = coordValue
+        , min = 0
+        , max = 5
+        , step = 0.01
+        , lbl = ("scale" ++ (toString coord))
+        , msg = (onInput (UpdateScale coord))
+        }
 
 
 translationSlider : Float -> Coordinate -> Html Msg
@@ -233,67 +276,79 @@ translationSlider coordValue coord =
         maxValue =
             case coord of
                 X ->
-                    canvasWidth
+                    toFloat canvasWidth
 
                 Y ->
-                    canvasHeight
+                    toFloat canvasHeight
     in
-        label []
-            [ span [ style [ ( "width", "50px" ), ( "display", "inline-block" ) ] ] [ text (toString coord) ]
-            , input
-                [ type_ "range"
-                , value (toString coordValue)
-                , Attributes.min "0"
-                , Attributes.max (toString maxValue)
-                , onInput (UpdateCoordinate coord)
+        genericSlider
+            { val = coordValue
+            , min = 0
+            , max = maxValue
+            , step = 1
+            , lbl = (toString coord)
+            , msg = (onInput (UpdateCoordinate coord))
+            }
+
+
+genericSlider : SliderConfig -> Html Msg
+genericSlider { val, min, max, step, lbl, msg } =
+    label []
+        [ span
+            [ style
+                [ ( "width", "60px" )
+                , ( "display", "inline-block" )
                 ]
-                []
-            , text (" " ++ (toString coordValue))
             ]
+            [ text lbl ]
+        , input
+            [ type_ "range"
+            , value (toString val)
+            , Attributes.min (toString min)
+            , Attributes.max (toString max)
+            , Attributes.step (toString step)
+            , msg
+            ]
+            []
+        , text (" " ++ (toString val))
+        ]
+
+
+controlsView : Model -> Html Msg
+controlsView model =
+    div
+        [ style
+            [ ( "position", "absolute" )
+            , ( "top", "0px" )
+            , ( "right", "0px" )
+            , ( "width", "275px" )
+            , ( "padding", "20px" )
+            , ( "background-color", "hotpink" )
+            ]
+        ]
+        [ translationSlider model.translation.x X
+        , br [] []
+        , translationSlider model.translation.y Y
+        , br [] []
+        , angleSlider model.angle
+        , br [] []
+        , scaleSlider model.scale.x X
+        , br [] []
+        , scaleSlider model.scale.y Y
+        ]
 
 
 view : Model -> Html Msg
 view model =
-    let
-        buttonStyle extraStyle =
-            style
-                (List.append
-                    [ ( "display", "inline-block" )
-                    , ( "padding", "20px" )
-                    , ( "border", "2px solid transparent" )
-                    , ( "margin-right", "20px" )
-                    , ( "text-transform", "uppercase" )
-                    , ( "font-weight", "bold" )
-                    , ( "font-size", "18px" )
-                    , ( "outline", "none" )
-                    , ( "cursor", "pointer" )
-                    ]
-                    extraStyle
-                )
-    in
-        div []
-            [ div
-                [ style
-                    [ ( "position", "absolute" )
-                    , ( "top", "0px" )
-                    , ( "right", "0px" )
-                    , ( "padding", "20px" )
-                    , ( "background-color", "hotpink" )
-                    ]
-                ]
-                [ translationSlider model.translation.x X
-                , br [] []
-                , translationSlider model.translation.y Y
-                , br [] []
-                , angleSlider model.angle
-                ]
-            , WebGL.toHtml
-                [ width canvasWidth
-                , height canvasHeight
-                , style [ ( "display", "block" ) ]
-                ]
-                [ shapeEntity model ]
+    div []
+        [ controlsView model
+        , WebGL.toHtml
+            [ width canvasWidth
+            , height canvasHeight
+            , style [ ( "display", "block" ) ]
             ]
+            [ shapeEntity model ]
+        ]
 
 
 main : Program Never Model Msg
