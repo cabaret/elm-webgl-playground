@@ -1,6 +1,6 @@
 module Main exposing (..)
 
-import Html exposing (Html, div, button, text, input, label, br)
+import Html exposing (Html, div, button, text, input, label, br, span)
 import Html.Attributes as Attributes exposing (style, width, height, type_, value)
 import Html.Events exposing (onInput)
 import WebGL exposing (Shader, Mesh, Entity, entity)
@@ -25,6 +25,7 @@ resolution =
 
 type Msg
     = UpdateCoordinate Coordinate String
+    | UpdateAngle String
 
 
 type Coordinate
@@ -41,6 +42,7 @@ type alias Vertex =
 type alias Uniforms =
     { u_resolution : Vec2
     , u_translation : Vec2
+    , u_rotation : Vec2
     }
 
 
@@ -61,6 +63,7 @@ type alias Model =
         { x : Float
         , y : Float
         }
+    , angle : Float
     }
 
 
@@ -70,17 +73,14 @@ initialModel =
         { x = 0
         , y = 0
         }
+    , angle = 0
     }
 
 
 strToFloat : String -> Float
 strToFloat str =
-    case String.toFloat str of
-        Ok f ->
-            f
-
-        Err _ ->
-            0
+    String.toFloat str
+        |> Result.withDefault 0
 
 
 round_ : Float -> Float
@@ -96,9 +96,16 @@ vertexShader =
       attribute vec3 a_color;
       uniform vec2 u_resolution;
       uniform vec2 u_translation;
+      uniform vec2 u_rotation;
       varying vec3 v_vColor;
       void main() {
-        vec2 position = a_position + u_translation;
+
+      vec2 rotatedPosition = vec2(
+         a_position.x * u_rotation.y + a_position.y * u_rotation.x,
+         a_position.y * u_rotation.y - a_position.x * u_rotation.x);
+
+
+        vec2 position = rotatedPosition + u_translation;
         vec2 zeroToOne = position / u_resolution;
         vec2 zeroToTwo = zeroToOne * 2.0;
         vec2 clipSpace = zeroToTwo - 1.0;
@@ -161,17 +168,32 @@ shapeMesh =
 
 
 shapeEntity : Model -> Entity
-shapeEntity { translation } =
-    entity
-        vertexShader
-        fragmentShader
-        shapeMesh
-        (Uniforms resolution (vec2 translation.x translation.y))
+shapeEntity { translation, angle } =
+    let
+        angleInRadians =
+            degrees angle
+    in
+        entity
+            vertexShader
+            fragmentShader
+            shapeMesh
+            (Uniforms
+                resolution
+                (vec2 translation.x translation.y)
+                (vec2 (sin angleInRadians) (cos angleInRadians))
+            )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        UpdateAngle str ->
+            let
+                angle =
+                    strToFloat str
+            in
+                { model | angle = angle } ! []
+
         UpdateCoordinate coord str ->
             let
                 translation =
@@ -189,8 +211,24 @@ update msg model =
                 { model | translation = translation } ! []
 
 
-sliderView : Float -> Coordinate -> Html Msg
-sliderView coordValue coord =
+angleSlider : Float -> Html Msg
+angleSlider angle =
+    label []
+        [ span [ style [ ( "width", "50px" ), ( "display", "inline-block" ) ] ] [ text "angle" ]
+        , input
+            [ type_ "range"
+            , value (toString angle)
+            , Attributes.min "0"
+            , Attributes.max "360"
+            , onInput (UpdateAngle)
+            ]
+            []
+        , text (" " ++ (toString angle))
+        ]
+
+
+translationSlider : Float -> Coordinate -> Html Msg
+translationSlider coordValue coord =
     let
         maxValue =
             case coord of
@@ -201,7 +239,7 @@ sliderView coordValue coord =
                     canvasHeight
     in
         label []
-            [ text (toString coord)
+            [ span [ style [ ( "width", "50px" ), ( "display", "inline-block" ) ] ] [ text (toString coord) ]
             , input
                 [ type_ "range"
                 , value (toString coordValue)
@@ -210,7 +248,7 @@ sliderView coordValue coord =
                 , onInput (UpdateCoordinate coord)
                 ]
                 []
-            , text (toString coordValue)
+            , text (" " ++ (toString coordValue))
             ]
 
 
@@ -238,12 +276,16 @@ view model =
                 [ style
                     [ ( "position", "absolute" )
                     , ( "top", "0px" )
-                    , ( "left", "0px" )
+                    , ( "right", "0px" )
+                    , ( "padding", "20px" )
+                    , ( "background-color", "hotpink" )
                     ]
                 ]
-                [ sliderView model.translation.x X
+                [ translationSlider model.translation.x X
                 , br [] []
-                , sliderView model.translation.y Y
+                , translationSlider model.translation.y Y
+                , br [] []
+                , angleSlider model.angle
                 ]
             , WebGL.toHtml
                 [ width canvasWidth
