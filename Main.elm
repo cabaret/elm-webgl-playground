@@ -96,6 +96,13 @@ positionGenerator =
     float 0
 
 
+pointGenerator : Float -> Float -> Generator Point
+pointGenerator width height =
+    Random.map2 (,)
+        (positionGenerator width)
+        (positionGenerator height)
+
+
 triangleVertices : Float -> Float -> Generator ( Point, Point, Point )
 triangleVertices width height =
     Random.map3 (,,)
@@ -104,24 +111,17 @@ triangleVertices width height =
         (pointGenerator width height)
 
 
-squareBase : Float -> Float -> Generator Point
-squareBase width height =
-    (pointGenerator width height)
-
-
-pointGenerator : Float -> Float -> Generator Point
-pointGenerator width height =
-    Random.map2 (,)
-        (positionGenerator width)
-        (positionGenerator height)
-
-
 triangleGenerator : Float -> Float -> Generator Shape
 triangleGenerator width height =
     Random.map3 Triangle
         (pointGenerator width height)
         (pointGenerator width height)
         (pointGenerator width height)
+
+
+squareBase : Float -> Float -> Generator Point
+squareBase width height =
+    (pointGenerator width height)
 
 
 squareGenerator : Float -> Float -> Generator Shape
@@ -144,7 +144,11 @@ objectGenerator objectType =
         shapeGenerator =
             case objectType of
                 Mixed ->
-                    (RandomE.choices [ squareGenerator w h, triangleGenerator w h ])
+                    (RandomE.choices
+                        [ squareGenerator w h
+                        , triangleGenerator w h
+                        ]
+                    )
 
                 Triangles ->
                     triangleGenerator w h
@@ -152,9 +156,7 @@ objectGenerator objectType =
                 Squares ->
                     squareGenerator w h
     in
-        Random.map2 Object
-            shapeGenerator
-            colorGenerator
+        Random.map2 Object shapeGenerator colorGenerator
 
 
 objectsGenerator : ObjectType -> Generator (List Object)
@@ -204,8 +206,8 @@ fragmentShader =
 
 
 vertexWithColor : Color -> Vec2 -> Vertex
-vertexWithColor color =
-    flip Vertex color
+vertexWithColor =
+    flip Vertex
 
 
 shapeMesh : Object -> Mesh Vertex
@@ -265,6 +267,9 @@ getActiveStyle currentObjectType buttonObjectType =
 view : Model -> Html Msg
 view model =
     let
+        getStyleForType =
+            getActiveStyle model.objectType
+
         buttonStyle extraStyle =
             style
                 (List.append
@@ -280,9 +285,6 @@ view model =
                     ]
                     extraStyle
                 )
-
-        entities =
-            (List.map shapeEntity model.objects)
     in
         div []
             [ div
@@ -295,7 +297,7 @@ view model =
                 [ button
                     [ buttonStyle
                         [ ( "background-color", "tomato" )
-                        , getActiveStyle model.objectType Mixed
+                        , getStyleForType Mixed
                         ]
                     , onClick (RenderObjects Mixed)
                     ]
@@ -303,7 +305,7 @@ view model =
                 , button
                     [ buttonStyle
                         [ ( "background-color", "peachpuff" )
-                        , getActiveStyle model.objectType Triangles
+                        , getStyleForType Triangles
                         ]
                     , onClick (RenderObjects Triangles)
                     ]
@@ -311,7 +313,7 @@ view model =
                 , button
                     [ buttonStyle
                         [ ( "background-color", "MediumAquamarine" )
-                        , getActiveStyle model.objectType Squares
+                        , getStyleForType Squares
                         ]
                     , onClick (RenderObjects Squares)
                     ]
@@ -322,7 +324,7 @@ view model =
                 , height canvasHeight
                 , style [ ( "display", "block" ) ]
                 ]
-                entities
+                (List.map shapeEntity model.objects)
             ]
 
 
