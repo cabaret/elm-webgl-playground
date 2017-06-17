@@ -6,7 +6,8 @@ import Html.Events exposing (onClick)
 import WebGL exposing (Shader, Mesh, Entity, entity)
 import Math.Vector2 exposing (Vec2, vec2)
 import Math.Vector3 exposing (Vec3, vec3)
-import Random exposing (Generator, list, pair, float)
+import Random exposing (Generator, list, pair, float, int)
+import Random.Extra as RandomE
 
 
 objectCount : Int
@@ -29,35 +30,31 @@ resolution =
     vec2 (toFloat canvasWidth) (toFloat canvasHeight)
 
 
+type Msg
+    = RenderObjects ObjectType
+    | SetObjects (List Object)
+
+
 type ObjectType
-    = Triangles
+    = Mixed
+    | Triangles
     | Squares
 
 
-type Msg
-    = SetTriangles (List Triangle)
-    | SetSquares (List Square)
-    | RenderTriangles
-    | RenderSquares
+type Shape
+    = Triangle Point Point Point
+    | Square Point Float Float
+
+
+type alias Object =
+    { shape : Shape
+    , color : Color
+    }
 
 
 type alias Vertex =
     { position : Vec2
     , color : Vec3
-    }
-
-
-type alias Triangle =
-    { vertices : ( Point, Point, Point )
-    , color : Color
-    }
-
-
-type alias Square =
-    { base : Point
-    , width : Float
-    , height : Float
-    , color : Color
     }
 
 
@@ -74,15 +71,14 @@ type alias Color =
 
 
 type alias Model =
-    { triangles : List Triangle
-    , squares : List Square
+    { objects : List Object
     , objectType : ObjectType
     }
 
 
 initialModel : Model
 initialModel =
-    Model [] [] Triangles
+    Model [] Mixed
 
 
 colorValueGenerator : Generator Float
@@ -120,41 +116,60 @@ pointGenerator width height =
         (positionGenerator height)
 
 
-triangleGenerator : Float -> Float -> Generator Triangle
+triangleGenerator : Float -> Float -> Generator Shape
 triangleGenerator width height =
-    Random.map2 Triangle
-        (triangleVertices width height)
-        colorGenerator
+    Random.map3 Triangle
+        (pointGenerator width height)
+        (pointGenerator width height)
+        (pointGenerator width height)
 
 
-squareGenerator : Float -> Float -> Generator Square
+squareGenerator : Float -> Float -> Generator Shape
 squareGenerator width height =
-    Random.map4 Square
+    Random.map3 Square
         (squareBase width height)
         (positionGenerator (width / 2))
         (positionGenerator (height / 2))
-        colorGenerator
 
 
-shapeGenerator : (Float -> Float -> Generator a) -> Generator (List a)
-shapeGenerator generator =
-    list objectCount <| generator (toFloat canvasWidth) (toFloat canvasHeight)
+objectGenerator : ObjectType -> Generator Object
+objectGenerator objectType =
+    let
+        w =
+            (toFloat canvasWidth)
+
+        h =
+            (toFloat canvasHeight)
+
+        shapeGenerator =
+            case objectType of
+                Mixed ->
+                    (RandomE.choices [ squareGenerator w h, triangleGenerator w h ])
+
+                Triangles ->
+                    triangleGenerator w h
+
+                Squares ->
+                    squareGenerator w h
+    in
+        Random.map2 Object
+            shapeGenerator
+            colorGenerator
+
+
+objectsGenerator : ObjectType -> Generator (List Object)
+objectsGenerator objectType =
+    list objectCount <| objectGenerator objectType
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        SetTriangles triangles ->
-            { model | triangles = triangles } ! []
+        SetObjects objects ->
+            { model | objects = objects } ! []
 
-        SetSquares squares ->
-            { model | squares = squares } ! []
-
-        RenderSquares ->
-            { model | objectType = Squares } ! [ generateSquares ]
-
-        RenderTriangles ->
-            { model | objectType = Triangles } ! [ generateTriangles ]
+        RenderObjects objectType ->
+            { model | objectType = objectType } ! [ generateObjects objectType ]
 
 
 vertexShader : Shader Vertex Uniforms { vColor : Vec3 }
@@ -193,82 +208,58 @@ vertexWithColor color =
     flip Vertex color
 
 
-triangleMesh : Triangle -> Mesh Vertex
-triangleMesh triangle =
+shapeMesh : Object -> Mesh Vertex
+shapeMesh shape =
     let
-        ( ( p1x, p1y ), ( p2x, p2y ), ( p3x, p3y ) ) =
-            triangle.vertices
-
         withColor =
-            vertexWithColor triangle.color
+            vertexWithColor shape.color
 
         mesh =
-            [ ( withColor (vec2 p1x p1y)
-              , withColor (vec2 p2x p2y)
-              , withColor (vec2 p3x p3y)
-              )
-            ]
+            case shape.shape of
+                Triangle ( p1x, p1y ) ( p2x, p2y ) ( p3x, p3y ) ->
+                    [ ( withColor (vec2 p1x p1y)
+                      , withColor (vec2 p2x p2y)
+                      , withColor (vec2 p3x p3y)
+                      )
+                    ]
+
+                Square ( x, y ) w h ->
+                    let
+                        x2 =
+                            x + w
+
+                        y2 =
+                            y + h
+                    in
+                        [ ( withColor (vec2 x y)
+                          , withColor (vec2 x2 y)
+                          , withColor (vec2 x y2)
+                          )
+                        , ( withColor (vec2 x y2)
+                          , withColor (vec2 x2 y)
+                          , withColor (vec2 x2 y2)
+                          )
+                        ]
     in
         WebGL.triangles mesh
 
 
-squareMesh : Square -> Mesh Vertex
-squareMesh square =
-    let
-        ( x, y ) =
-            square.base
-
-        x2 =
-            x + square.width
-
-        y2 =
-            y + square.height
-
-        withColor =
-            vertexWithColor square.color
-
-        mesh =
-            [ ( withColor (vec2 x y)
-              , withColor (vec2 x2 y)
-              , withColor (vec2 x y2)
-              )
-            , ( withColor (vec2 x y2)
-              , withColor (vec2 x2 y)
-              , withColor (vec2 x2 y2)
-              )
-            ]
-    in
-        WebGL.triangles mesh
-
-
-triangleEntity : Triangle -> Entity
-triangleEntity triangle =
+shapeEntity : Object -> Entity
+shapeEntity object =
     entity
         vertexShader
         fragmentShader
-        (triangleMesh triangle)
+        (shapeMesh object)
         { resolution = resolution
         }
 
 
-squareEntity : Square -> Entity
-squareEntity square =
-    entity
-        vertexShader
-        fragmentShader
-        (squareMesh square)
-        { resolution = resolution
-        }
-
-
-triangleEntities : List Triangle -> List Entity
-triangleEntities =
-    List.map triangleEntity
-
-
-squareEntities : List Square -> List Entity
-squareEntities =
-    List.map squareEntity
+getActiveStyle : ObjectType -> ObjectType -> ( String, String )
+getActiveStyle currentObjectType buttonObjectType =
+    if currentObjectType == buttonObjectType then
+        ( "border", "2px solid #333" )
+    else
+        ( "", "" )
 
 
 view : Model -> Html Msg
@@ -277,25 +268,21 @@ view model =
         buttonStyle extraStyle =
             style
                 (List.append
-                    extraStyle
                     [ ( "display", "inline-block" )
                     , ( "padding", "20px" )
-                    , ( "border", "none" )
+                    , ( "border", "2px solid transparent" )
                     , ( "margin-right", "20px" )
                     , ( "text-transform", "uppercase" )
                     , ( "font-weight", "bold" )
                     , ( "font-size", "18px" )
                     , ( "outline", "none" )
+                    , ( "cursor", "pointer" )
                     ]
+                    extraStyle
                 )
 
         entities =
-            case model.objectType of
-                Squares ->
-                    (squareEntities model.squares)
-
-                Triangles ->
-                    (triangleEntities model.triangles)
+            (List.map shapeEntity model.objects)
     in
         div []
             [ div
@@ -306,13 +293,27 @@ view model =
                     ]
                 ]
                 [ button
-                    [ buttonStyle [ ( "background-color", "tomato" ) ]
-                    , onClick RenderTriangles
+                    [ buttonStyle
+                        [ ( "background-color", "tomato" )
+                        , getActiveStyle model.objectType Mixed
+                        ]
+                    , onClick (RenderObjects Mixed)
+                    ]
+                    [ text "mix!" ]
+                , button
+                    [ buttonStyle
+                        [ ( "background-color", "peachpuff" )
+                        , getActiveStyle model.objectType Triangles
+                        ]
+                    , onClick (RenderObjects Triangles)
                     ]
                     [ text "triangles!" ]
                 , button
-                    [ buttonStyle [ ( "background-color", "peachpuff" ) ]
-                    , onClick RenderSquares
+                    [ buttonStyle
+                        [ ( "background-color", "MediumAquamarine" )
+                        , getActiveStyle model.objectType Squares
+                        ]
+                    , onClick (RenderObjects Squares)
                     ]
                     [ text "squares!" ]
                 ]
@@ -325,20 +326,15 @@ view model =
             ]
 
 
-generateTriangles : Cmd Msg
-generateTriangles =
-    Random.generate SetTriangles (shapeGenerator triangleGenerator)
-
-
-generateSquares : Cmd Msg
-generateSquares =
-    Random.generate SetSquares (shapeGenerator squareGenerator)
+generateObjects : ObjectType -> Cmd Msg
+generateObjects objectType =
+    Random.generate SetObjects (objectsGenerator objectType)
 
 
 main : Program Never Model Msg
 main =
     Html.program
-        { init = ( initialModel, generateTriangles )
+        { init = ( initialModel, generateObjects Mixed )
         , view = view
         , update = update
         , subscriptions = (\_ -> Sub.none)
