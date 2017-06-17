@@ -103,14 +103,6 @@ pointGenerator width height =
         (positionGenerator height)
 
 
-triangleVertices : Float -> Float -> Generator ( Point, Point, Point )
-triangleVertices width height =
-    Random.map3 (,,)
-        (pointGenerator width height)
-        (pointGenerator width height)
-        (pointGenerator width height)
-
-
 triangleGenerator : Float -> Float -> Generator Shape
 triangleGenerator width height =
     Random.map3 Triangle
@@ -119,15 +111,10 @@ triangleGenerator width height =
         (pointGenerator width height)
 
 
-squareBase : Float -> Float -> Generator Point
-squareBase width height =
-    (pointGenerator width height)
-
-
 squareGenerator : Float -> Float -> Generator Shape
 squareGenerator width height =
     Random.map3 Square
-        (squareBase width height)
+        (pointGenerator width height)
         (positionGenerator (width / 2))
         (positionGenerator (height / 2))
 
