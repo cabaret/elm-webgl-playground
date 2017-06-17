@@ -12,7 +12,7 @@ import Random.Extra as RandomE
 
 objectCount : Int
 objectCount =
-    50
+    100
 
 
 canvasWidth : Int
