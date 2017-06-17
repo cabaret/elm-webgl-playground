@@ -136,14 +136,9 @@ squareGenerator width height =
         colorGenerator
 
 
-trianglesGenerator : Generator (List Triangle)
-trianglesGenerator =
-    list objectCount <| triangleGenerator (toFloat canvasWidth) (toFloat canvasHeight)
-
-
-squaresGenerator : Generator (List Square)
-squaresGenerator =
-    list objectCount <| squareGenerator (toFloat canvasWidth) (toFloat canvasHeight)
+shapeGenerator : (Float -> Float -> Generator a) -> Generator (List a)
+shapeGenerator generator =
+    list objectCount <| generator (toFloat canvasWidth) (toFloat canvasHeight)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -332,12 +327,12 @@ view model =
 
 generateTriangles : Cmd Msg
 generateTriangles =
-    Random.generate SetTriangles trianglesGenerator
+    Random.generate SetTriangles (shapeGenerator triangleGenerator)
 
 
 generateSquares : Cmd Msg
 generateSquares =
-    Random.generate SetSquares squaresGenerator
+    Random.generate SetSquares (shapeGenerator squareGenerator)
 
 
 main : Program Never Model Msg
